@@ -1,0 +1,27 @@
+{
+  "name": "মধ্যডাঙ্গা পুরুষ মাদ্রাসা",
+  "short_name": "মধ্যডাঙ্গা মাদ্রাসা",
+  "description": "অভিভাবকদের জন্য হোমওয়ার্ক, নোটিশ, পরীক্ষার রুটিন ও মাদ্রাসার সব খবর।",
+  "lang": "bn",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E8F5E9",
+  "theme_color": "#2E7D32",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
