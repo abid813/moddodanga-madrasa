@@ -227,38 +227,68 @@ const appFooter = document.getElementById('appFooter');
 let deferredInstall = null;
 let adminUser = null;
 
-/* ---------------- স্প্ল্যাশের মিষ্টি শব্দ ----------------
+/* ---------------- শব্দ সিস্টেম ----------------
    ব্রাউজারের নিয়ম: ব্যবহারকারী স্ক্রিনে না ছুঁলে শব্দ চালানো যায় না।
    তাই আগে চেষ্টা করি; আটকে গেলে প্রথম ছোঁয়ায় বাজবে। */
 let chimeCtx = null, chimePlayed = false;
+function ensureAudio() {
+  if (!chimeCtx) {
+    try { chimeCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+  }
+  if (chimeCtx.state === 'suspended') chimeCtx.resume();
+  return chimeCtx.state === 'running' ? chimeCtx : null;
+}
+
+/* স্প্ল্যাশ মেলোডি — খুব মিষ্টি, নরম, আকর্ষণীয়
+   রাগ ভৈরবী অনুপ্রাণিত — ভগ্ন ত্রিমাত্রিক সুর
+   C5 → E5 → G5 → C6 (উপরের সপ্তক), তারপর মৃদু G5 ধরে রাখা */
 function playChime() {
   if (chimePlayed) return;
-  try {
-    chimeCtx = chimeCtx || new (window.AudioContext || window.webkitAudioContext)();
-    if (chimeCtx.state === 'suspended') { chimeCtx.resume(); }
-    if (chimeCtx.state !== 'running') return; // এখনো অনুমতি নেই
-    chimePlayed = true;
-    const t0 = chimeCtx.currentTime;
-    // মিষ্টি স্বাগত মেলোডি — পেন্টাটোনিক স্কেল (G4-A4-B4-D5-E5)
-    // নরম, উষ্ণ — তরুণ অভিভাবকদের জন্য
-    const notes = [
-      { f: 587.33, t: 0.00, d: 0.5, v: 0.10 },  // D5 — নরম শুরু
-      { f: 659.25, t: 0.12, d: 0.5, v: 0.09 },  // E5 — মিষ্টি হারমোনি
-      { f: 783.99, t: 0.24, d: 0.6, v: 0.08 },  // G5 — স্বাগত অনুভূতি
-      { f: 880.00, t: 0.36, d: 0.7, v: 0.06 },  // A5 — মৃদু রেজোলিউশন
-    ];
-    notes.forEach(n => {
-      const o = chimeCtx.createOscillator(), g = chimeCtx.createGain();
-      o.type = 'sine';
-      o.frequency.value = n.f;
-      const s = t0 + n.t;
-      g.gain.setValueAtTime(0, s);
-      g.gain.linearRampToValueAtTime(n.v, s + 0.04);
-      g.gain.exponentialRampToValueAtTime(0.001, s + n.d);
-      o.connect(g); g.connect(chimeCtx.destination);
-      o.start(s); o.stop(s + n.d + 0.1);
-    });
-  } catch (e) { /* শব্দ না বাজলেও অ্যাপ চলবে */ }
+  const ctx = ensureAudio(); if (!ctx) return;
+  chimePlayed = true;
+  const t0 = ctx.currentTime;
+  // নরম, উষ্ণ, কোলারবেল-এর মতো টোন
+  const notes = [
+    { f: 523.25, t: 0.00, d: 0.6, v: 0.09, type: 'sine' },      // C5 — শান্ত শুরু
+    { f: 659.25, t: 0.14, d: 0.6, v: 0.08, type: 'sine' },      // E5 — মিষ্টি
+    { f: 783.99, t: 0.28, d: 0.7, v: 0.08, type: 'sine' },      // G5 — স্বাগত
+    { f: 1046.50, t: 0.42, d: 0.9, v: 0.06, type: 'sine' },     // C6 — মৃদু শীর্ষ
+    { f: 783.99, t: 0.42, d: 0.9, v: 0.03, type: 'triangle' },  // G5 হারমোনি
+  ];
+  notes.forEach(n => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = n.type;
+    o.frequency.value = n.f;
+    const s = t0 + n.t;
+    g.gain.setValueAtTime(0, s);
+    g.gain.linearRampToValueAtTime(n.v, s + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, s + n.d);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(s); o.stop(s + n.d + 0.1);
+  });
+}
+
+/* ছোট মিষ্টি টিং — হোমওয়ার্ক বাটন বা যেকোনো ট্যাপে
+   দুটি নোট: E5 → A5 (মিষ্টি, ছোট, যন্ত্রণাহীন) */
+function playTap() {
+  const ctx = ensureAudio(); if (!ctx) return;
+  const t0 = ctx.currentTime;
+  const notes = [
+    { f: 659.25, t: 0.00, d: 0.15, v: 0.07 },  // E5
+    { f: 880.00, t: 0.06, d: 0.20, v: 0.05 },  // A5
+  ];
+  notes.forEach(n => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = n.f;
+    const s = t0 + n.t;
+    g.gain.setValueAtTime(0, s);
+    g.gain.linearRampToValueAtTime(n.v, s + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, s + n.d);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(s); o.stop(s + n.d + 0.05);
+  });
 }
 
 /* ---------------- স্প্ল্যাশ ---------------- */
@@ -444,7 +474,7 @@ function renderHome(profile) {
 
     ${deferredInstall && !isStandalone() ? `<button class="install-btn" id="installBtn">📲 ফোনের হোম স্ক্রিনে অ্যাপ রাখুন</button>` : ''}
 
-    <button class="homework-hero" onclick="location.hash='#/homework'">
+    <button class="homework-hero" onclick="playTap(); setTimeout(()=>location.hash='#/homework', 150)">
       <span class="hero-icon">📖</span>
       <span class="hero-text"><b>আজকের হোমওয়ার্ক</b><span>আজ ক্লাসে কী পড়া হয়েছে দেখুন</span></span>
     </button>
