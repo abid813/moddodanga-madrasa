@@ -606,16 +606,41 @@ function renderSoon(key) {
 }
 
 /* ---------------- নোটিশ ব্যাজ (কতগুলো নতুন নোটিশ দেখেনি) ---------------- */
-const SEEN_NOTICES_KEY = 'moddodanga_seen_notices';
-function getSeenNotices() { try { return JSON.parse(localStorage.getItem(SEEN_NOTICES_KEY)) || []; } catch { return []; } }
-function markNoticesSeen(ids) { localStorage.setItem(SEEN_NOTICES_KEY, JSON.stringify(ids.slice(-50))); }
+/* ---------------- নোটিশ ব্যাজ ----------------
+   নিয়ম: প্রতিটা নোটিশ ৩ বার নোটিশ পাতায় দেখা না হলে ব্যাজ থাকবে।
+   ৩ বার দেখার পর সেই নোটিশের ব্যাজ চলে যাবে।
+   নতুন নোটিশ এলে তার গোনা শূন্য থেকে শুরু — আবার ব্যাজ দেখাবে। */
+const NOTICE_VIEWS_KEY = 'moddodanga_notice_views';
+const NOTICE_VIEWS_NEEDED = 3;
+
+function getNoticeViews() {
+  try { return JSON.parse(localStorage.getItem(NOTICE_VIEWS_KEY)) || {}; } catch { return {}; }
+}
+function saveNoticeViews(v) {
+  // পুরনো এন্ট্রি ছেঁটে ফেলি — স্টোরেজ যেন না ভরে
+  const keys = Object.keys(v);
+  if (keys.length > 80) {
+    const trimmed = {};
+    keys.slice(-80).forEach(k => trimmed[k] = v[k]);
+    v = trimmed;
+  }
+  localStorage.setItem(NOTICE_VIEWS_KEY, JSON.stringify(v));
+}
+/* নোটিশ পাতা খোলার সময় ডাকা হয় — প্রতিটা নোটিশের গোনা ১ বাড়ায় */
+function countNoticeView(ids) {
+  const v = getNoticeViews();
+  ids.forEach(id => {
+    v[id] = Math.min(NOTICE_VIEWS_NEEDED, (v[id] || 0) + 1);
+  });
+  saveNoticeViews(v);
+}
+/* যেসব নোটিশ এখনো ৩ বার দেখা হয়নি — তাদের সংখ্যা */
 async function getUnreadNoticeCount() {
   try {
     const list = await DB.getNotices();
     if (!list || !list.length) return 0;
-    const seen = getSeenNotices();
-    const unread = list.filter(n => !seen.includes(n.id));
-    return unread.length;
+    const v = getNoticeViews();
+    return list.filter(n => (v[n.id] || 0) < NOTICE_VIEWS_NEEDED).length;
   } catch { return 0; }
 }
 
@@ -809,8 +834,9 @@ async function renderNotices() {
   let list = [], netErr = false;
   try { list = await DB.getNotices(); } catch (e) { console.warn(e); netErr = true; }
 
-  // নোটিশ দেখলে — seen হিসেবে চিহ্নিত করো (ব্যাজ পরের বার আসবে না)
-  if (list && list.length) markNoticesSeen(list.map(n => n.id));
+  // নোটিশ পাতা খোলা হলো — প্রতিটা নোটিশের দেখা-গোনা ১ বাড়ালাম
+  // (৩ বার হলে ব্যাজ চলে যাবে)
+  if (list && list.length) countNoticeView(list.map(n => n.id));
 
   if (netErr) {
     view.innerHTML = '<div class="empty-note">📶 নোটিশ আনা যায়নি।<br>ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।</div>';
