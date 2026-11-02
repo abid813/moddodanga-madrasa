@@ -291,6 +291,24 @@ img { max-width: 100%; }
 .menu-item .mi-icon { font-size: 1.7rem; display: block; }
 .menu-item .mi-label { font-size: .82rem; font-weight: 600; margin-top: 6px; display: block; line-height: 1.35; }
 
+/* নোটিশ ব্যাজ — হালকা লাল বৃত্ত, মাঝে সংখ্যা */
+.menu-item { position: relative; }
+.notice-badge {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 24px; height: 24px; padding: 0 5px;
+  background: linear-gradient(135deg, #EF5350, #C62828);
+  color: #fff; font-size: .72rem; font-weight: 800;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(198, 40, 40, .35);
+  border: 2px solid #fff; line-height: 1; z-index: 2;
+  animation: badge-pop .3s ease-out;
+}
+@keyframes badge-pop {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 .talk-section {
   background: var(--amber-light); border: 1.5px solid #FFE082;
   border-radius: var(--radius); padding: 16px;

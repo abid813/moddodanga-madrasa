@@ -605,15 +605,32 @@ function renderSoon(key) {
     </div>`;
 }
 
+/* ---------------- নোটিশ ব্যাজ (কতগুলো নতুন নোটিশ দেখেনি) ---------------- */
+const SEEN_NOTICES_KEY = 'moddodanga_seen_notices';
+function getSeenNotices() { try { return JSON.parse(localStorage.getItem(SEEN_NOTICES_KEY)) || []; } catch { return []; } }
+function markNoticesSeen(ids) { localStorage.setItem(SEEN_NOTICES_KEY, JSON.stringify(ids.slice(-50))); }
+async function getUnreadNoticeCount() {
+  try {
+    const list = await DB.getNotices();
+    if (!list || !list.length) return 0;
+    const seen = getSeenNotices();
+    const unread = list.filter(n => !seen.includes(n.id));
+    return unread.length;
+  } catch { return 0; }
+}
+
 /* ---------------- হোম ---------------- */
-function renderHome(profile) {
+async function renderHome(profile) {
+  // নতুন নোটিশ কয়টা দেখেনি — ব্যাজে দেখাবে
+  const noticeCount = await getUnreadNoticeCount();
+
   // অভিভাবকের মনে প্রশ্ন আসার ক্রমে সাজানো
   const sections = [
     {
       title: '📌 আজকের খবর',
       items: [
         { icon: '📖', label: 'আজকে ক্লাসে কী পড়া (হোমওয়ার্ক)', go: '#/homework', sound: 'homework' },
-        { icon: '📢', label: 'নোটিশ', go: '#/notices', sound: 'notices' },
+        { icon: '📢', label: 'নোটিশ', go: '#/notices', sound: 'notices', badge: noticeCount },
         { icon: '📅', label: 'ক্লাস রুটিন', go: '#/routine', sound: 'routine' }
       ]
     },
@@ -666,6 +683,7 @@ function renderHome(profile) {
              </div>`
     : `<div class="menu-item" data-sound="${m.sound || 'tap'}" onclick="location.hash='${m.go}'">
                <span class="mi-icon">${m.icon}</span><span class="mi-label">${m.label}</span>
+               ${m.badge ? `<span class="notice-badge">${m.badge > 99 ? '৯৯+' : bn(m.badge)}</span>` : ''}
              </div>`).join('')}
       </div>`).join('')}
 
@@ -790,6 +808,9 @@ async function renderNotices() {
   view.innerHTML = '<div class="loading">নোটিশ আনা হচ্ছে…</div>';
   let list = [], netErr = false;
   try { list = await DB.getNotices(); } catch (e) { console.warn(e); netErr = true; }
+
+  // নোটিশ দেখলে — seen হিসেবে চিহ্নিত করো (ব্যাজ পরের বার আসবে না)
+  if (list && list.length) markNoticesSeen(list.map(n => n.id));
 
   if (netErr) {
     view.innerHTML = '<div class="empty-note">📶 নোটিশ আনা যায়নি।<br>ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।</div>';

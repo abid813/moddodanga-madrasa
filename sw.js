@@ -1,5 +1,5 @@
 /* সার্ভিস ওয়ার্কার — অফলাইনে অ্যাপ খোলা রাখে + নতুন ভার্সন আসলে আপডেট হয় */
-const CACHE = 'moddodanga-v2';
+const CACHE = 'moddodanga-v3';
 const APP_SHELL = [
   './',
   './index.html',
