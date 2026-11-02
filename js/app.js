@@ -41,6 +41,51 @@ const PAGES = {
   stipend: { title: 'বই ও স্টেশনারি', icon: '📚' }
 };
 
+/* ---------------- শিক্ষকমন্ডলী (ডিফল্ট তালিকা) ----------------
+   স্কেলেবল প্রোফাইল: ছবি, নাম, পদবি, শিক্ষাগত যোগ্যতা, পরিচয় ও ঠিকানা */
+const DEFAULT_TEACHERS = [
+  {
+    id: 't1',
+    name: 'মাওলানা মুফতি মো. আব্দুল্লাহ',
+    designation: 'মুহতামিম ও প্রধান উপদেষ্টা',
+    photo: 'assets/logo.jpg',
+    qualification: 'দাওরায়ে হাদিস (মাস্টার্স সমমান), ইফতা (মুফতি), হাফেজে কুরআন।',
+    identity: 'খতিব, সরকারি বিএল কলেজ কেন্দ্রীয় জামে মসজিদ, দৌলতপুর, খুলনা এবং প্রতিষ্ঠাতা পরিচালক, মধ্যডাঙ্গা পুরুষ মাদ্রাসা (নূরানি বিভাগ)।',
+    address: 'মধ্যডাঙ্গা, দৌলতপুর, খুলনা।',
+    phone: '01911756628'
+  },
+  {
+    id: 't2',
+    name: 'মাওলানা মো. মাহমুদুল হাসান',
+    designation: 'বিভাগীয় প্রধান ও সিনিয়র শিক্ষক',
+    photo: 'assets/logo.jpg',
+    qualification: 'দাওরায়ে হাদিস, নূরানি মুয়াল্লিম প্রশিক্ষণপ্রাপ্ত ও কামিল (হাদিস)।',
+    identity: 'নূরানি বিভাগের সার্বিক পরিচালনা, সহপাঠ শিক্ষা ও বাংলা-ইংরেজি সমন্বয়কারী শিক্ষক।',
+    address: 'দৌলতপুর, খুলনা।',
+    phone: '01911756628'
+  },
+  {
+    id: 't3',
+    name: 'ক্বারী মো. হাবিবুর রহমান',
+    designation: 'ক্বারী ও হিফজুল কুরআন শিক্ষক',
+    photo: 'assets/logo.jpg',
+    qualification: 'হাফেজে কুরআন, তাজবীদ ও ক্বিরাত বিশেষজ্ঞ (আন্তর্জাতিক মানসম্পন্ন সনদপ্রাপ্ত)।',
+    identity: 'সহিহ কুরআন তিলাওয়াত, মাখরাজ ও মাশক শিক্ষক, নূরানি বিভাগ।',
+    address: 'মধ্যডাঙ্গা, খুলনা।',
+    phone: '01911756628'
+  },
+  {
+    id: 't4',
+    name: 'মাওলানা মো. আব্দুর রহিম',
+    designation: 'সহকারী শিক্ষক (সাধারণ শিক্ষা)',
+    photo: 'assets/logo.jpg',
+    qualification: 'ফাজিল (ডিগ্রি সমমান), বি.এ। নূরানি মুয়াল্লিম কোর্স সম্পন্ন।',
+    identity: 'নূরানি বিভাগের বাংলা, সাধারণ গণিত, ইংরেজি ও দ্বীনিয়াত বিষয়ের শিক্ষক।',
+    address: 'দৌলতপুর, খুলনা।',
+    phone: '01911756628'
+  }
+];
+
 /* ---------------- বাংলা হেল্পার ---------------- */
 const BN_D = '০১২৩৪৫৬৭৮৯';
 const bn = v => String(v).replace(/[0-9]/g, d => BN_D[+d]);
@@ -158,7 +203,8 @@ const DemoDB = (() => {
     deleteNotice: id => { db.notices = db.notices.filter(n => n.id !== id); persist(); return ok(); },
     savePage: (k, body) => { db.pages[k] = { title: PAGES[k].title, body, updatedAt: new Date().toISOString() }; persist(); return ok(); },
     saveRoutine: (c, body) => { db.routines[c] = body; persist(); return ok(); },
-    getComplaints: () => ok(db.complaints)
+    getComplaints: () => ok(db.complaints),
+    getTeachers: () => ok(db.teachers || DEFAULT_TEACHERS)
   };
 })();
 
@@ -209,6 +255,15 @@ const FirebaseDB = (() => {
     async getComplaints() {
       const s = await db.collection('complaints').orderBy('createdAt', 'desc').limit(50).get();
       return s.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    async getTeachers() {
+      try {
+        const s = await db.collection('teachers').orderBy('order', 'asc').get();
+        if (!s.empty) {
+          return s.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+      } catch (e) { }
+      return DEFAULT_TEACHERS;
     }
   };
 })();
@@ -309,6 +364,7 @@ const SOUND_PALETTE = {
   // সব মূল সার্ভিসে নোটিশের সেই মিষ্টি সুর
   homework: NOTICE_SOUND,
   notices: NOTICE_SOUND,
+  teachers: NOTICE_SOUND,
   routine: NOTICE_SOUND,
   exam: NOTICE_SOUND,
   holidays: NOTICE_SOUND,
@@ -413,6 +469,8 @@ function setupSoundDelegation() {
           soundType = 'homework';
         } else if (target.matches('[onclick*="#/notices"]')) {
           soundType = 'notices';
+        } else if (target.matches('[onclick*="#/teachers"]') || target.matches('[href*="teachers"]')) {
+          soundType = 'teachers';
         } else if (target.matches('[onclick*="#/routine"]')) {
           soundType = 'routine';
         } else if (target.matches('[onclick*="exam"]')) {
@@ -549,6 +607,7 @@ function setupRouter() {
 
 const TITLES = {
   home: SCHOOL.name, homework: 'আজকের হোমওয়ার্ক', notices: 'নোটিশ',
+  teachers: 'শিক্ষকমন্ডলী',
   page: '', routine: 'ক্লাস রুটিন', complaint: 'অভিযোগ / মতামত', admin: 'অ্যাডমিন'
 };
 
@@ -569,6 +628,7 @@ async function render() {
   else if (route === 'homework' && parts[1]) { appbarTitle.textContent = CLASS_LABEL[parts[1]] + ' — হোমওয়ার্ক'; renderHomeworkDetail(parts[1]); }
   else if (route === 'homework') { appbarTitle.textContent = TITLES.homework; renderClassPick(profile, 'homework'); }
   else if (route === 'notices') { appbarTitle.textContent = TITLES.notices; renderNotices(); }
+  else if (route === 'teachers') { appbarTitle.textContent = TITLES.teachers; renderTeachers(); }
   else if (route === 'page' && PAGES[parts[1]]) { appbarTitle.textContent = PAGES[parts[1]].title; renderPage(parts[1]); }
   else if (route === 'routine') { appbarTitle.textContent = TITLES.routine; renderRoutine(profile); }
   else if (route === 'complaint') { appbarTitle.textContent = TITLES.complaint; renderComplaint(profile); }
@@ -670,8 +730,8 @@ async function renderHome(profile) {
     {
       title: '🌟 পরে দেখার জিনিস',
       items: [
+        { icon: '👨‍🏫', label: 'শিক্ষকমন্ডলী', go: '#/teachers', sound: 'teachers' },
         { icon: '📚', label: 'বই ও স্টেশনারি', go: '#/page/stipend', sound: 'stipend' },
-        { icon: '🗓️', label: 'ক্যালেন্ডার', soon: 'calendar', sound: 'soon' },
         { icon: '📸', label: 'ছবির গ্যালারি', soon: 'gallery', sound: 'soon' }
       ]
     }
@@ -856,6 +916,43 @@ async function renderNotices() {
       <div class="notice-date">${bnUpdated(n.createdAt)}</div>
       <div class="notice-body">${esc(n.body)}</div>
     </div>`).join('');
+}
+
+/* ---------------- শিক্ষকমন্ডলী ---------------- */
+async function renderTeachers() {
+  view.innerHTML = '<div class="loading">শিক্ষকমন্ডলীর তথ্য আনা হচ্ছে…</div>';
+  let teachers = [];
+  try {
+    teachers = await DB.getTeachers();
+  } catch (e) {
+    console.warn(e);
+  }
+  if (!teachers || !teachers.length) teachers = DEFAULT_TEACHERS;
+
+  view.innerHTML = `
+    <p class="teacher-intro">🌿 মধ্যডাঙ্গা পুরুষ মাদ্রাসা (নূরানি বিভাগ)-এর নিবেদিতপ্রাণ ও অভিজ্ঞ সম্মানিত শিক্ষকমন্ডলীর পরিচয়:</p>
+    <div class="teacher-list">
+      ${teachers.map(t => `
+        <article class="teacher-card">
+          <div class="teacher-header">
+            <div class="teacher-photo-wrap">
+              <img src="${esc(t.photo || 'assets/logo.jpg')}" alt="${esc(t.name)}" class="teacher-photo" onerror="this.src='assets/logo.jpg'">
+            </div>
+            <div class="teacher-info-head">
+              <h1 class="teacher-name">${esc(t.name)}</h1>
+              ${t.designation ? `<span class="teacher-badge">${esc(t.designation)}</span>` : ''}
+            </div>
+          </div>
+          <div class="teacher-body">
+            ${t.qualification ? `<p class="teacher-p"><strong>🎓 শিক্ষাগত যোগ্যতা:</strong> ${esc(t.qualification)}</p>` : ''}
+            ${t.identity ? `<p class="teacher-p"><strong>💼 পরিচয় ও দায়িত্ব:</strong> ${esc(t.identity)}</p>` : ''}
+            ${t.address ? `<p class="teacher-p"><strong>📍 ঠিকানা:</strong> ${esc(t.address)}</p>` : ''}
+            ${t.phone ? `<p class="teacher-p"><strong>📞 যোগাযোগ:</strong> <a href="tel:${t.phone}" class="teacher-phone">${bn(t.phone)}</a></p>` : ''}
+          </div>
+        </article>
+      `).join('')}
+    </div>
+  `;
 }
 
 /* ---------- সাধারণ পাতা (পরীক্ষা/ছুটি/উপবৃত্তি) ---------- */

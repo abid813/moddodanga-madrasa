@@ -22,7 +22,7 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // হোমওয়ার্ক, নোটিশ, পাতা, রুটিন — পড়া সবার জন্য, লেখা শুধু অ্যাডমিন
+    // হোমওয়ার্ক, নোটিশ, পাতা, রুটিন, শিক্ষকমন্ডলী — পড়া সবার জন্য, লেখা শুধু অ্যাডমিন
     match /homework/{doc} {
       allow read: if true;
       allow write: if isAdmin();
@@ -36,6 +36,10 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     match /routines/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /teachers/{doc} {
       allow read: if true;
       allow write: if isAdmin();
     }
