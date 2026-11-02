@@ -227,84 +227,305 @@ const appFooter = document.getElementById('appFooter');
 let deferredInstall = null;
 let adminUser = null;
 
-/* ---------------- শব্দ সিস্টেম ----------------
-   ব্রাউজারের নিয়ম: ব্যবহারকারী স্ক্রিনে না ছুঁলে শব্দ চালানো যায় না।
-   তাই আগে চেষ্টা করি; আটকে গেলে প্রথম ছোঁয়ায় বাজবে। */
-let chimeCtx = null, chimePlayed = false;
-function ensureAudio() {
-  if (!chimeCtx) {
-    try { chimeCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-    catch (e) { return null; }
+/* ---------------- শব্দ সিস্টেম (Web Audio API) ----------------
+   ২৩–৩৩ বছরের সম্মানিত অভিভাবকদের জন্য তৈরি নরম, শান্ত, মিষ্টি সুর।
+   কোনো বাহ্যিক অডিও ফাইল ছাড়া পিওর সিন্থেসাইজারে তৈরি।
+   - সব সুর ০.১৫–০.৩৮ সেকেন্ডের মধ্যে।
+   - সর্বোচ্চ ভলিউম ০.১২ (০.১৫-এর অনেক নিচে, কান জুড়ানো)।
+   - sine ও triangle ওয়েভ, কোমল অ্যাটাক ও এক্সপোনেনশিয়াল ফেড-আউট।
+   - সাউন্ডে যেকোনো ব্যর্থতায় try/catch থাকায় অ্যাপ কখনই থামবে না। */
+
+const MUTE_KEY = 'moddodanga_mute';
+let _muted = false;
+try {
+  _muted = localStorage.getItem(MUTE_KEY) === '1';
+} catch (e) {
+  _muted = false;
+}
+
+function isMuted() { return _muted; }
+
+function setMute(val) {
+  _muted = Boolean(val);
+  try {
+    localStorage.setItem(MUTE_KEY, _muted ? '1' : '0');
+  } catch (e) { }
+  updateMuteButtonUI();
+  if (!_muted) {
+    playServiceSound('tap');
   }
-  if (chimeCtx.state === 'suspended') chimeCtx.resume();
-  return chimeCtx.state === 'running' ? chimeCtx : null;
 }
 
-/* স্প্ল্যাশ মেলোডি — খুব মিষ্টি, নরম, আকর্ষণীয়
-   রাগ ভৈরবী অনুপ্রাণিত — ভগ্ন ত্রিমাত্রিক সুর
-   C5 → E5 → G5 → C6 (উপরের সপ্তক), তারপর মৃদু G5 ধরে রাখা */
-function playChime() {
-  if (chimePlayed) return;
-  const ctx = ensureAudio(); if (!ctx) return;
-  chimePlayed = true;
-  const t0 = ctx.currentTime;
-  // নরম, উষ্ণ, কোলারবেল-এর মতো টোন
-  const notes = [
-    { f: 523.25, t: 0.00, d: 0.6, v: 0.09, type: 'sine' },      // C5 — শান্ত শুরু
-    { f: 659.25, t: 0.14, d: 0.6, v: 0.08, type: 'sine' },      // E5 — মিষ্টি
-    { f: 783.99, t: 0.28, d: 0.7, v: 0.08, type: 'sine' },      // G5 — স্বাগত
-    { f: 1046.50, t: 0.42, d: 0.9, v: 0.06, type: 'sine' },     // C6 — মৃদু শীর্ষ
-    { f: 783.99, t: 0.42, d: 0.9, v: 0.03, type: 'triangle' },  // G5 হারমোনি
-  ];
-  notes.forEach(n => {
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = n.type;
-    o.frequency.value = n.f;
-    const s = t0 + n.t;
-    g.gain.setValueAtTime(0, s);
-    g.gain.linearRampToValueAtTime(n.v, s + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.001, s + n.d);
-    o.connect(g); g.connect(ctx.destination);
-    o.start(s); o.stop(s + n.d + 0.1);
+function toggleMute() {
+  try {
+    setMute(!_muted);
+  } catch (e) { }
+}
+
+function updateMuteButtonUI() {
+  try {
+    const btn = document.getElementById('muteBtn');
+    if (btn) {
+      btn.innerHTML = _muted ? '🔇 সাউন্ড বন্ধ' : '🔊 সাউন্ড চালু';
+      btn.style.background = _muted ? '#ECEFF1' : 'var(--green-light, #E8F5E9)';
+      btn.style.color = _muted ? '#546E7A' : 'var(--green-dark, #1B5E20)';
+      btn.style.borderColor = _muted ? '#CFD8DC' : '#C8E6C9';
+      btn.setAttribute('aria-pressed', _muted ? 'true' : 'false');
+    }
+  } catch (e) { }
+}
+
+let chimeCtx = null;
+function ensureAudio() {
+  try {
+    if (!chimeCtx) {
+      chimeCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (chimeCtx.state === 'suspended') {
+      chimeCtx.resume().catch(() => {});
+    }
+    return chimeCtx;
+  } catch (e) {
+    return null;
+  }
+}
+
+/* প্রতিটি মূল সার্ভিসের জন্য স্বতন্ত্র, নরম ও সংক্ষিপ্ত সুর প্যালেট */
+const SOUND_PALETTE = {
+  // ১. অ্যাপ ওপেন / স্প্ল্যাশ (নরম ভৈরবী-ধাঁচের স্বাগত চাইম: C5 → E5 → G5 → C6) - ০.৩৮ সে.
+  open: [
+    { f: 523.25, t: 0.00, d: 0.28, v: 0.08, type: 'sine', attack: 0.04 },
+    { f: 659.25, t: 0.08, d: 0.26, v: 0.07, type: 'sine', attack: 0.03 },
+    { f: 783.99, t: 0.16, d: 0.22, v: 0.06, type: 'triangle', attack: 0.03 },
+    { f: 1046.50, t: 0.24, d: 0.38, v: 0.06, type: 'sine', attack: 0.03 },
+  ],
+
+  // ২. আজকের হোমওয়ার্ক (উষ্ণ, আন্তরিক বেল: F5 → A5) - ০.৩২ সে.
+  homework: [
+    { f: 698.46, t: 0.00, d: 0.20, v: 0.08, type: 'sine', attack: 0.02 },
+    { f: 880.00, t: 0.07, d: 0.25, v: 0.09, type: 'sine', attack: 0.02 },
+  ],
+
+  // ৩. নোটিশ (শান্ত, মনোযোগী বিজ্ঞপ্তি চাইম: A4 → E5) - ০.৩২ সে.
+  notices: [
+    { f: 440.00, t: 0.00, d: 0.18, v: 0.07, type: 'triangle', attack: 0.03 },
+    { f: 659.25, t: 0.08, d: 0.24, v: 0.08, type: 'sine', attack: 0.03 },
+  ],
+
+  // ৪. ক্লাস রুটিন (ছান্দিক, সুবিন্যস্ত পিয়ানো ট্যাপ: G4 → D5) - ০.৩০ সে.
+  routine: [
+    { f: 392.00, t: 0.00, d: 0.18, v: 0.07, type: 'triangle', attack: 0.02 },
+    { f: 587.33, t: 0.08, d: 0.22, v: 0.07, type: 'sine', attack: 0.02 },
+  ],
+
+  // ৫. পরীক্ষার রুটিন (কোমল ক্রিস্টাল বেল: E5 → B5) - ০.৩৪ সে.
+  exam: [
+    { f: 659.25, t: 0.00, d: 0.20, v: 0.07, type: 'sine', attack: 0.03 },
+    { f: 987.77, t: 0.08, d: 0.26, v: 0.06, type: 'sine', attack: 0.03 },
+  ],
+
+  // ৬. ছুটির তালিকা (মৃদু আনন্দময় ট্রিল: C5 → G5 → A5) - ০.৩৬ সে.
+  holidays: [
+    { f: 523.25, t: 0.00, d: 0.16, v: 0.06, type: 'sine', attack: 0.02 },
+    { f: 783.99, t: 0.07, d: 0.18, v: 0.07, type: 'sine', attack: 0.02 },
+    { f: 880.00, t: 0.14, d: 0.22, v: 0.08, type: 'triangle', attack: 0.03 },
+  ],
+
+  // ৭. বই ও স্টেশনারি (মৃদু কাঠের জাইলোফোন ট্যাপ: D5 → F#5) - ০.২৬ সে.
+  stipend: [
+    { f: 587.33, t: 0.00, d: 0.16, v: 0.07, type: 'triangle', attack: 0.02 },
+    { f: 739.99, t: 0.06, d: 0.20, v: 0.07, type: 'triangle', attack: 0.02 },
+  ],
+
+  // ৮. শীঘ্রই আসছে (শান্ত জলের ফোঁটা / ড্রপলেট: C5 → E5) - ০.২৫ সে.
+  soon: [
+    { f: 523.25, t: 0.00, d: 0.16, v: 0.06, type: 'sine', attack: 0.02 },
+    { f: 659.25, t: 0.07, d: 0.18, v: 0.06, type: 'sine', attack: 0.02 },
+  ],
+
+  // ৯. অভিযোগ / মতামত (সহমর্মী, শুনছি এমন মিষ্টি সুর: F4 → C5) - ০.৩০ সে.
+  complaint: [
+    { f: 349.23, t: 0.00, d: 0.18, v: 0.07, type: 'triangle', attack: 0.03 },
+    { f: 523.25, t: 0.07, d: 0.23, v: 0.07, type: 'sine', attack: 0.03 },
+  ],
+
+  // ১০. কথা বলুন (হোয়াটসঅ্যাপ / ইমো সংযোগ: G4 → E5) - ০.২৯ সে.
+  contact: [
+    { f: 392.00, t: 0.00, d: 0.16, v: 0.07, type: 'sine', attack: 0.02 },
+    { f: 659.25, t: 0.07, d: 0.22, v: 0.08, type: 'sine', attack: 0.02 },
+  ],
+
+  // ১১. পেছনে ফেরা (কোমল ফিরতি টোন: A5 → E5) - ০.২৩ সে.
+  back: [
+    { f: 880.00, t: 0.00, d: 0.15, v: 0.06, type: 'sine', attack: 0.02 },
+    { f: 659.25, t: 0.05, d: 0.18, v: 0.05, type: 'sine', attack: 0.02 },
+  ],
+
+  // ১২. শ্রেণি বাছাই (মৃদু সিলেকশন ট্যাপ: G5) - ০.১৮ সে.
+  class: [
+    { f: 783.99, t: 0.00, d: 0.18, v: 0.06, type: 'sine', attack: 0.02 },
+  ],
+
+  // ১৩. সাধারণ বাটন ট্যাপ (সংক্ষিপ্ত কোমল টিং: A5) - ০.১৬ সে.
+  tap: [
+    { f: 880.00, t: 0.00, d: 0.16, v: 0.05, type: 'sine', attack: 0.02 },
+  ],
+
+  // ১৪. সফল সংরক্ষণ / সাবমিট (শান্তিময় ৩ নোটের সম্প্রীতি: F5 → A5 → C6) - ০.৩৮ সে.
+  success: [
+    { f: 698.46, t: 0.00, d: 0.16, v: 0.07, type: 'sine', attack: 0.02 },
+    { f: 880.00, t: 0.07, d: 0.20, v: 0.08, type: 'sine', attack: 0.02 },
+    { f: 1046.50, t: 0.14, d: 0.24, v: 0.07, type: 'sine', attack: 0.03 },
+  ]
+};
+
+/* সিন্থেসাইজার কোর — নোট বাজানোর নিরাপদ ইঞ্জিন */
+function playNotes(notes) {
+  try {
+    if (isMuted()) return;
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+
+    notes.forEach(n => {
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = n.type || 'sine';
+        osc.frequency.setValueAtTime(n.f, t0 + n.t);
+
+        const startTime = t0 + n.t;
+        const dur = Math.min(Math.max(n.d || 0.2, 0.15), 0.4);
+        const stopTime = startTime + dur;
+        const targetVol = Math.min(n.v || 0.07, 0.12);
+        const attack = n.attack || 0.025;
+
+        // সফট ফেড-ইন (আক্রমণ কোমল করা, যাতে খটখট শব্দ না হয়)
+        gain.gain.setValueAtTime(0.0001, startTime);
+        gain.gain.linearRampToValueAtTime(targetVol, startTime + attack);
+
+        // সফট ফেড-আউট (নরমভাবে শেষ হওয়া)
+        gain.gain.exponentialRampToValueAtTime(0.0001, stopTime);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(startTime);
+        osc.stop(stopTime + 0.02);
+      } catch (noteErr) {
+        // কোনো সিঙ্গেল নোটে এরর হলেও পরেরগুলো বা অ্যাপ যেন না থামে
+      }
+    });
+  } catch (err) {
+    // অডিও ক্র্যাশ করলেও মূল অ্যাপ অক্ষত থাকবে
+  }
+}
+
+/* একক এন্ট্রি পয়েন্ট — সার্ভিস অনুযায়ী শব্দ বাজায় */
+function playServiceSound(type) {
+  try {
+    if (isMuted()) return;
+    const notes = SOUND_PALETTE[type] || SOUND_PALETTE.tap;
+    playNotes(notes);
+  } catch (e) { }
+}
+
+/* পুরোনো কোডের সাথে ব্যাকওয়ার্ড কম্প্যাটিবিলিটি */
+function playSound(type) { playServiceSound(type); }
+function playTap() { playServiceSound('tap'); }
+function playChime() { playServiceSound('open'); }
+function playSuccess() { playServiceSound('success'); }
+
+/* ---------------- সাউন্ড ডেলিগেশন ---------------- */
+function setupSoundDelegation() {
+  document.addEventListener('pointerdown', function handleTapSound(e) {
+    try {
+      if (isMuted()) return;
+
+      // স্প্ল্যাশ স্ক্রিন অ্যাক্টিভ থাকলে শুধু ওপেন সাউন্ড বাজবে
+      const splash = document.getElementById('screen-splash');
+      if (splash && splash.classList.contains('active')) return;
+
+      // মিউট বাটনে ক্লিক করলে নিজস্ব হ্যান্ডলার কাজ করবে
+      if (e.target.closest('#muteBtn')) return;
+
+      const target = e.target.closest(
+        'button, a, .menu-item, .talk-btn, .homework-hero, .class-btn, .class-row, .appbar-back, #homeFab, .admin-tab, .edit-profile, .install-btn, .splash-install-btn'
+      );
+      if (!target) return;
+
+      let soundType = target.dataset ? target.dataset.sound : null;
+
+      if (!soundType) {
+        if (target.classList.contains('homework-hero') || target.matches('[onclick*="#/homework"]')) {
+          soundType = 'homework';
+        } else if (target.matches('[onclick*="#/notices"]')) {
+          soundType = 'notices';
+        } else if (target.matches('[onclick*="#/routine"]')) {
+          soundType = 'routine';
+        } else if (target.matches('[onclick*="exam"]')) {
+          soundType = 'exam';
+        } else if (target.matches('[onclick*="holidays"]')) {
+          soundType = 'holidays';
+        } else if (target.matches('[onclick*="stipend"]')) {
+          soundType = 'stipend';
+        } else if (target.classList.contains('soon') || target.matches('[onclick*="soon"]')) {
+          soundType = 'soon';
+        } else if (target.matches('[onclick*="complaint"]')) {
+          soundType = 'complaint';
+        } else if (target.id === 'imoBtn' || target.matches('[href*="wa.me"]') || target.classList.contains('talk-btn')) {
+          soundType = 'contact';
+        } else if (target.id === 'backBtn' || target.id === 'homeFab') {
+          soundType = 'back';
+        } else if (target.classList.contains('class-btn') || target.classList.contains('class-row')) {
+          soundType = 'class';
+        } else {
+          soundType = 'tap';
+        }
+      }
+
+      playServiceSound(soundType);
+    } catch (err) {
+      // সাউন্ডে সমস্যা হলেও অ্যাপ যেন কখনই না থামে
+    }
   });
 }
 
-/* ছোট মিষ্টি টিং — হোমওয়ার্ক বাটন বা যেকোনো ট্যাপে
-   দুটি নোট: E5 → A5 (মিষ্টি, ছোট, যন্ত্রণাহীন) */
-function playTap() {
-  const ctx = ensureAudio(); if (!ctx) return;
-  const t0 = ctx.currentTime;
-  const notes = [
-    { f: 659.25, t: 0.00, d: 0.15, v: 0.07 },  // E5
-    { f: 880.00, t: 0.06, d: 0.20, v: 0.05 },  // A5
-  ];
-  notes.forEach(n => {
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.value = n.f;
-    const s = t0 + n.t;
-    g.gain.setValueAtTime(0, s);
-    g.gain.linearRampToValueAtTime(n.v, s + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.001, s + n.d);
-    o.connect(g); g.connect(ctx.destination);
-    o.start(s); o.stop(s + n.d + 0.05);
-  });
-}
-
-/* ---------------- স্প্ল্যাশ ---------------- */
+/* ---------------- স্প্ল্যাশ ও বুট ---------------- */
 function boot() {
   if (DEMO) document.getElementById('demoBanner').hidden = false;
   if (/FBAN|FBAV|Instagram|Messenger/i.test(navigator.userAgent)) {
     document.getElementById('inappBanner').hidden = false;
   }
 
-  playChime(); // অটোপ্লে মিললে এখনেই বাজবে
-  document.addEventListener('pointerdown', function once() {
-    playChime();
-    document.removeEventListener('pointerdown', once);
-  });
+  // অ্যাপ খোলার সাউন্ড স্প্ল্যাশের প্রথম ট্যাপে বাজবে
+  let openPlayed = false;
+  function triggerOpenSound() {
+    if (openPlayed) return;
+    openPlayed = true;
+    playServiceSound('open');
+  }
 
   const splash = document.getElementById('screen-splash');
+  if (splash) {
+    splash.addEventListener('pointerdown', triggerOpenSound, { once: true });
+  }
+  document.addEventListener('pointerdown', function firstSplashTouch() {
+    triggerOpenSound();
+    document.removeEventListener('pointerdown', firstSplashTouch);
+  }, { once: true });
+
+  // ব্রাউজারে অনুমতি থাকলে সরাসরি বাজবে
+  try {
+    const ctx = ensureAudio();
+    if (ctx && ctx.state === 'running') {
+      triggerOpenSound();
+    }
+  } catch (e) { }
+
+  // মূল সার্ভিস বাটনে আলাদা সাউন্ড বাজার লিসেনার
+  setupSoundDelegation();
+
   const splashInstallBtn = document.getElementById('splashInstall');
   let left = false;
   const leave = () => {
@@ -356,6 +577,7 @@ function setupRegister() {
     try { await DB.saveRegistration(profile); } catch (e2) { console.warn('reg save', e2); }
 
     document.getElementById('screen-register').classList.remove('active');
+    playServiceSound('success');
     enterApp();
   });
 }
@@ -442,39 +664,46 @@ function renderHome(profile) {
     {
       title: '📌 আজকের খবর',
       items: [
-        { icon: '📖', label: 'আজকে ক্লাসে কী পড়া (হোমওয়ার্ক)', go: '#/homework' },
-        { icon: '📢', label: 'নোটিশ', go: '#/notices' },
-        { icon: '📅', label: 'ক্লাস রুটিন', go: '#/routine' }
+        { icon: '📖', label: 'আজকে ক্লাসে কী পড়া (হোমওয়ার্ক)', go: '#/homework', sound: 'homework' },
+        { icon: '📢', label: 'নোটিশ', go: '#/notices', sound: 'notices' },
+        { icon: '📅', label: 'ক্লাস রুটিন', go: '#/routine', sound: 'routine' }
       ]
     },
     {
       title: '🗓️ সামনে কী আছে',
       items: [
-        { icon: '📝', label: 'পরীক্ষার রুটিন', go: '#/page/exam' },
-        { icon: '🏆', label: 'ফলাফল', soon: 'results' },
-        { icon: '🎉', label: 'ছুটির তালিকা', go: '#/page/holidays' }
+        { icon: '📝', label: 'পরীক্ষার রুটিন', go: '#/page/exam', sound: 'exam' },
+        { icon: '🏆', label: 'ফলাফল', soon: 'results', sound: 'soon' },
+        { icon: '🎉', label: 'ছুটির তালিকা', go: '#/page/holidays', sound: 'holidays' }
       ]
     },
     {
       title: '🌟 পরে দেখার জিনিস',
       items: [
-        { icon: '📚', label: 'বই ও স্টেশনারি', go: '#/page/stipend' },
-        { icon: '🗓️', label: 'ক্যালেন্ডার', soon: 'calendar' },
-        { icon: '📸', label: 'ছবির গ্যালারি', soon: 'gallery' }
+        { icon: '📚', label: 'বই ও স্টেশনারি', go: '#/page/stipend', sound: 'stipend' },
+        { icon: '🗓️', label: 'ক্যালেন্ডার', soon: 'calendar', sound: 'soon' },
+        { icon: '📸', label: 'ছবির গ্যালারি', soon: 'gallery', sound: 'soon' }
       ]
     }
   ];
 
   view.innerHTML = `
     <div class="home-hello">
-      <h2>আসসালামু আলাইকুম! 🌿</h2>
-      <p>${esc(profile.studentName)} — ${CLASS_LABEL[profile.classId]}</p>
-      <button class="edit-profile" id="editProfile">✏️ নাম ঠিকানা বদলাতে চাইলে</button>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+        <div style="flex:1">
+          <h2>আসসালামু আলাইকুম! 🌿</h2>
+          <p>${esc(profile.studentName)} — ${CLASS_LABEL[profile.classId]}</p>
+          <button class="edit-profile" id="editProfile" data-sound="tap">✏️ নাম ঠিকানা বদলাতে চাইলে</button>
+        </div>
+        <button id="muteBtn" class="mute-btn" type="button" aria-label="সাউন্ড অন বা অফ" style="background:${isMuted() ? '#ECEFF1' : 'var(--green-light, #E8F5E9)'}; color:${isMuted() ? '#546E7A' : 'var(--green-dark, #1B5E20)'}; border:1px solid ${isMuted() ? '#CFD8DC' : '#C8E6C9'}; border-radius:20px; padding:6px 14px; font-size:0.82rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:5px; flex-shrink:0; box-shadow:0 1px 3px rgba(0,0,0,0.06); user-select:none;">
+          ${isMuted() ? '🔇 সাউন্ড বন্ধ' : '🔊 সাউন্ড চালু'}
+        </button>
+      </div>
     </div>
 
-    ${deferredInstall && !isStandalone() ? `<button class="install-btn" id="installBtn">📲 ফোনের হোম স্ক্রিনে অ্যাপ রাখুন</button>` : ''}
+    ${deferredInstall && !isStandalone() ? `<button class="install-btn" id="installBtn" data-sound="tap">📲 ফোনের হোম স্ক্রিনে অ্যাপ রাখুন</button>` : ''}
 
-    <button class="homework-hero" onclick="playTap(); setTimeout(()=>location.hash='#/homework', 150)">
+    <button class="homework-hero" data-sound="homework" onclick="location.hash='#/homework'">
       <span class="hero-icon">📖</span>
       <span class="hero-text"><b>আজকের হোমওয়ার্ক</b><span>আজ ক্লাসে কী পড়া হয়েছে দেখুন</span></span>
     </button>
@@ -483,11 +712,11 @@ function renderHome(profile) {
       <div class="section-title">${sec.title}</div>
       <div class="menu-grid">
         ${sec.items.map(m => m.soon
-    ? `<div class="menu-item soon" onclick="location.hash='#/soon/${m.soon}'">
+    ? `<div class="menu-item soon" data-sound="${m.sound || 'soon'}" onclick="location.hash='#/soon/${m.soon}'">
                <span class="mi-icon">${m.icon}</span><span class="mi-label">${m.label}</span>
                <span class="badge-soon">শীঘ্রই আসছে</span>
              </div>`
-    : `<div class="menu-item" onclick="location.hash='${m.go}'">
+    : `<div class="menu-item" data-sound="${m.sound || 'tap'}" onclick="location.hash='${m.go}'">
                <span class="mi-icon">${m.icon}</span><span class="mi-label">${m.label}</span>
              </div>`).join('')}
       </div>`).join('')}
@@ -495,12 +724,21 @@ function renderHome(profile) {
     <div class="talk-section">
       <h3>💬 কথা বলুন</h3>
       <div class="talk-btns">
-        <div class="talk-btn" onclick="location.hash='#/complaint'">✍️ <span>অভিযোগ / মতামত<small>লিখে পাঠালে সরাসরি হোয়াটসঅ্যাপে পৌঁছে যাবে</small></span></div>
-        <a class="talk-btn" href="${SCHOOL.whatsapp}" target="_blank" rel="noopener">🟢 <span>হোয়াটসঅ্যাপে মেসেজ দিন<span class="try-first">প্রথমে এখানে চেষ্টা করুন</span><small>মেসেজ করলে কয়েক মিনিট থেকে কয়েক ঘণ্টার মধ্যেই উত্তর পেয়ে যাবেন</small></span></a>
-        <button class="talk-btn" id="imoBtn" style="width:100%;text-align:left">🔵 <span>ইমোতে মেসেজ দিন<small>ইমোতে পেতে হলে আগে নম্বরটি (${bn(SCHOOL.phone)}) সেভ করে নিতে হবে — চাপ দিলে নম্বর কপি হবে</small></span></button>
+        <div class="talk-btn" data-sound="complaint" onclick="location.hash='#/complaint'">✍️ <span>অভিযোগ / মতামত<small>লিখে পাঠালে সরাসরি হোয়াটসঅ্যাপে পৌঁছে যাবে</small></span></div>
+        <a class="talk-btn" data-sound="contact" href="${SCHOOL.whatsapp}" target="_blank" rel="noopener">🟢 <span>হোয়াটসঅ্যাপে মেসেজ দিন<span class="try-first">প্রথমে এখানে চেষ্টা করুন</span><small>মেসেজ করলে কয়েক মিনিট থেকে কয়েক ঘণ্টার মধ্যেই উত্তর পেয়ে যাবেন</small></span></a>
+        <button class="talk-btn" data-sound="contact" id="imoBtn" style="width:100%;text-align:left">🔵 <span>ইমোতে মেসেজ দিন<small>ইমোতে পেতে হলে আগে নম্বরটি (${bn(SCHOOL.phone)}) সেভ করে নিতে হবে — চাপ দিলে নম্বর কপি হবে</small></span></button>
       </div>
     </div>
   `;
+
+  const mb = document.getElementById('muteBtn');
+  if (mb) {
+    mb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      toggleMute();
+    });
+  }
 
   document.getElementById('imoBtn').addEventListener('click', async function () {
     try { await navigator.clipboard.writeText(SCHOOL.phone); } catch { }
@@ -689,6 +927,8 @@ function renderComplaint(profile) {
     /* ব্যাকআপ হিসেবে ডেটাবেসেও রাখি */
     try { await DB.submitComplaint({ name: name || 'অভিভাবক', classId: profile.classId, message: msg }); } catch (e2) { console.warn('complaint save', e2); }
 
+    playServiceSound('success');
+
     /* হোয়াটসঅ্যাপে পাঠাই */
     const waMsg = `*অভিযোগ / মতামত*\n\nনাম: ${name || 'অভিভাবক'}\nশ্রেণি: ${CLASS_LABEL[profile.classId]}\n\n${msg}`;
     window.open(`${SCHOOL.whatsapp}?text=${encodeURIComponent(waMsg)}`, '_blank');
@@ -828,6 +1068,7 @@ function adminHomework(body) {
     });
     await DB.saveHomework(classSel.value, dateIn.value, subjects);
     document.getElementById('ahOk').hidden = false;
+    playServiceSound('success');
   });
 
   load();
@@ -893,6 +1134,7 @@ async function adminNotice(body) {
       document.getElementById('anTitle').value = '';
       document.getElementById('anBody').value = '';
       document.getElementById('anUrgent').checked = false;
+      playServiceSound('success');
       loadList();
     } catch (e) { showErr(err, 'প্রকাশ হয়নি — ইন্টারনেট দেখে আবার চেষ্টা করুন।'); }
   });
@@ -949,6 +1191,7 @@ function adminRoutine(body) {
   document.getElementById('arSave').addEventListener('click', async () => {
     await DB.saveRoutine(sel.value, document.getElementById('arBody').value.trim());
     document.getElementById('arOk').hidden = false;
+    playServiceSound('success');
   });
   load();
 }
@@ -974,6 +1217,7 @@ function adminPages(body) {
   document.getElementById('apSave').addEventListener('click', async () => {
     await DB.savePage(sel.value, document.getElementById('apBody').value.trim());
     document.getElementById('apOk').hidden = false;
+    playServiceSound('success');
   });
   load();
 }
