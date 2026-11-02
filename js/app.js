@@ -436,9 +436,12 @@ function playTap() { playServiceSound('tap'); }
 function playChime() { playServiceSound('open'); }
 function playSuccess() { playServiceSound('success'); }
 
-/* ---------------- সাউন্ড ডেলিগেশন ---------------- */
+/* ---------------- সাউন্ড ডেলিগেশন ----------------
+   স্ক্রোল করার সময় যেন কোনো শব্দ না বাজে, সেজন্য pointerdown-এর পরিবর্তে click ইভেন্টে
+   সাউন্ড চালানো হয় (ক্যাপচার ফেজে)। ব্রাউজারে ব্যবহারকারী স্ক্রোল/সোয়াইপ করলে click
+   ইভেন্ট ফায়ার হয় না; কেবল ইচ্ছাকৃতভাবে কোনো বাটন ট্যাপ করলেই শব্দ বাজবে। */
 function setupSoundDelegation() {
-  document.addEventListener('pointerdown', function handleTapSound(e) {
+  document.addEventListener('click', function handleTapSound(e) {
     try {
       if (isMuted()) return;
 
@@ -488,7 +491,7 @@ function setupSoundDelegation() {
     } catch (err) {
       // সাউন্ডে সমস্যা হলেও অ্যাপ যেন কখনই না থামে
     }
-  });
+  }, true);
 }
 
 /* ---------------- স্প্ল্যাশ ও বুট ---------------- */
@@ -510,10 +513,6 @@ function boot() {
   if (splash) {
     splash.addEventListener('pointerdown', triggerOpenSound, { once: true });
   }
-  document.addEventListener('pointerdown', function firstSplashTouch() {
-    triggerOpenSound();
-    document.removeEventListener('pointerdown', firstSplashTouch);
-  }, { once: true });
 
   // ব্রাউজারে অনুমতি থাকলে সরাসরি বাজবে
   try {
@@ -523,7 +522,7 @@ function boot() {
     }
   } catch (e) { }
 
-  // মূল সার্ভিস বাটনে আলাদা সাউন্ড বাজার লিসেনার
+  // মূল সার্ভিস বাটনে আলাদা সাউন্ড বাজার লিসেনার (স্ক্রোল নিরাপদ)
   setupSoundDelegation();
 
   const splashInstallBtn = document.getElementById('splashInstall');
