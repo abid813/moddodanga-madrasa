@@ -1,5 +1,5 @@
 /* সার্ভিস ওয়ার্কার — অফলাইনে অ্যাপ খোলা রাখে + নতুন ভার্সন আসলে আপডেট হয় */
-const CACHE = 'moddodanga-v4';
+const CACHE = 'moddodanga-v6';
 const APP_SHELL = [
   './',
   './index.html',
@@ -7,16 +7,28 @@ const APP_SHELL = [
   './js/app.js',
   './js/firebase-config.js',
   './manifest.webmanifest',
+  './manifest.json',
   './assets/logo.jpg',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
 
+/* Firebase CDN ফাইলগুলোও প্রিক্যাশ করো (প্রথম লোডে দ্রুত চলবে) */
+const CDN_PRECACHE = [
+  'https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js',
+  'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js'
+];
+
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE)
-      .then(c => c.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
+    Promise.all([
+      caches.open(CACHE).then(c => c.addAll(APP_SHELL)),
+      // CDN প্রিক্যাশ — একটা fail হলে পুরো install fail করবে না
+      caches.open(CACHE).then(c =>
+        Promise.allSettled(CDN_PRECACHE.map(url => c.add(url)))
+      )
+    ]).then(() => self.skipWaiting())
   );
 });
 
@@ -31,12 +43,12 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // Firestore/Google API কল ক্যাশ করা হবে না — সরাসরি নেটওয়ার্ক
+  // Firestore/Google API কল (ডেটা রিড/রাইট) ক্যাশ করা হবে না — সরাসরি নেটওয়ার্ক
   if (url.hostname.includes('googleapis.com') && !url.hostname.includes('gstatic') && !url.hostname.includes('fonts')) {
     return;
   }
 
-  // পাতা (navigation): সরাসরি নেট থেকে আনো, সাথে cache আপডেট করো
+  // পাতা (navigation): নেট ফার্স্ট, fallback ক্যাশ
   if (e.request.mode === 'navigate') {
     e.respondWith(
       fetch(e.request)
@@ -50,12 +62,13 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // app.js / styles.css / firebase-config.js / manifest — নেট থেকে আনো, পাশাপাশি cache আপডেট
+  // app.js / styles.css / firebase-config.js / manifest — নেট ফার্স্ট, cache fallback
   const isCoreAsset = [
     '/js/app.js',
     '/css/styles.css',
     '/js/firebase-config.js',
     '/manifest.webmanifest',
+    '/manifest.json',
     '/sw.js'
   ].some(p => url.pathname.endsWith(p));
 
@@ -74,10 +87,52 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // অন্যান্য স্ট্যাটিক + CDN (Firebase SDK, ফন্ট): আগে ক্যাশ, না থাকলে নেট থেকে এনে ক্যাশে রাখো
+  // Firebase SDK (gstatic.com) — cache first (একবার লোড হলে ক্যাশ থেকেই চলবে)
+  if (url.hostname.includes('gstatic.com') && url.pathname.includes('firebase')) {
+    e.respondWith(
+      caches.match(e.request).then(hit =>
+        hit || fetch(e.request).then(res => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then(c => c.put(e.request, copy));
+          }
+          return res;
+        })
+      )
+    );
+    return;
+  }
+
+  // ফন্ট — cache first, background update
+  if (url.hostname.includes('fonts.g')) {
+    e.respondWith(
+      caches.match(e.request).then(hit => {
+        if (hit) {
+          // background update
+          fetch(e.request).then(res => {
+            if (res.ok) {
+              const copy = res.clone();
+              caches.open(CACHE).then(c => c.put(e.request, copy));
+            }
+          }).catch(() => {});
+          return hit;
+        }
+        return fetch(e.request).then(res => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then(c => c.put(e.request, copy));
+          }
+          return res;
+        });
+      })
+    );
+    return;
+  }
+
+  // অন্যান্য স্ট্যাটিক — cache first, fallback network
   e.respondWith(
     caches.match(e.request).then(hit => hit || fetch(e.request).then(res => {
-      if (res.ok && (url.origin === location.origin || url.hostname.includes('gstatic.com') || url.hostname.includes('fonts.g'))) {
+      if (res.ok && url.origin === location.origin) {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));
       }

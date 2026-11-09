@@ -11,6 +11,12 @@
   to = "/index.html"
   status = 200
 
+# .webmanifest ফাইলের সঠিক MIME type পাঠাতে হবে, নাহলে Chrome PWA চিনতে পারে না
+[[headers]]
+  for = "*.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+
 # sw.js কখনো ক্যাশ হবে না (সার্ভিস ওয়ার্কার আপডেটের জন্য)
 [[headers]]
   for = "/sw.js"

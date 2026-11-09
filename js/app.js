@@ -502,10 +502,36 @@ function setupSoundDelegation() {
 }
 
 /* ---------------- স্প্ল্যাশ ও বুট ---------------- */
+function isInAppBrowser() {
+  const ua = navigator.userAgent || '';
+  // সাধারণ ইন-অ্যাপ ব্রাউজার/ওয়েবভিউ চিহ্নিত করো
+  return /FBAN|FBAV|Instagram|Messenger|WhatsApp|IMO|Telegram|Twitter|XTwitter|TikTok|Line|WeChat| Snapchat/i.test(ua)
+    || /wv\)|Version\/.*Chrome\/1\d/i.test(ua)       // Android WebView pattern
+    || (/(iPhone|iPad|iPod).*AppleWebKit(?!.*Safari)/i.test(ua)) // iOS in-app webview
+    || (!/Chrome|Safari|Firefox|Edg|Opera/i.test(ua) && /Mobile/i.test(ua));
+}
+
 function boot() {
   if (DEMO) document.getElementById('demoBanner').hidden = false;
-  if (/FBAN|FBAV|Instagram|Messenger/i.test(navigator.userAgent)) {
-    document.getElementById('inappBanner').hidden = false;
+
+  // ইন-অ্যাপ ব্রাউজারে Chrome-এ খোলার বাটন (index.html এর inline script অটো চেষ্টা করে)
+  // এখানে শুধু বাটনের ক্লিক হ্যান্ডলার — fallback হিসেবে
+  if (isInAppBrowser()) {
+    const ib = document.getElementById('inappBanner');
+    if (ib) ib.hidden = false;
+    const openBtn = document.getElementById('openInChrome');
+    if (openBtn) {
+      openBtn.addEventListener('click', () => {
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        if (isIOS) {
+          location.href = 'googlechromes://' + location.host + location.pathname + location.search;
+        } else {
+          // Android: Chrome intent
+          var url = location.href.replace(/^https?:\/\//, '');
+          location.href = 'intent://' + url + '#Intent;scheme=https;package=com.android.chrome;end';
+        }
+      });
+    }
   }
 
   // অ্যাপ খোলার সাউন্ড স্প্ল্যাশের প্রথম ট্যাপে বাজবে
@@ -546,7 +572,7 @@ function boot() {
     else document.getElementById('screen-register').classList.add('active');
   };
   document.getElementById('splashSkip').addEventListener('click', leave);
-  setTimeout(leave, 2800);
+  setTimeout(leave, 4500);
 
   DB.init().catch(e => console.warn('DB init', e));
   setupRegister();
@@ -752,6 +778,10 @@ async function renderHome(profile) {
     </div>
 
     ${deferredInstall && !isStandalone() ? `<button class="install-btn" id="installBtn" data-sound="tap">📲 ফোনের হোম স্ক্রিনে অ্যাপ রাখুন</button>` : ''}
+    ${!deferredInstall && !isStandalone() ? `<div class="install-hint" id="installHint" style="background:var(--green-light);border:1.5px solid #C8E6C9;border-radius:12px;padding:14px 16px;margin-bottom:16px;font-size:.92rem;color:var(--green-dark);">
+      <b style="font-size:1rem;">📲 অ্যাপ হোম স্ক্রিনে রাখুন</b><br>
+      <span style="display:block;margin-top:4px;line-height:1.6;">Chrome ব্রাউজারে খুলুন → উপরে ডানদিকে <b>⋮</b> চাপুন → <b>"Add to Home screen"</b> বা <b>"অ্যাপ ইনস্টল করুন"</b> চাপুন। তাহলে অ্যাপ আইকন ফোনে বসে যাবে।</span>
+    </div>` : ''}
 
     <button class="homework-hero" data-sound="homework" onclick="location.hash='#/homework'">
       <span class="hero-icon">📖</span>
@@ -804,6 +834,7 @@ async function renderHome(profile) {
 
   const ib = document.getElementById('installBtn');
   if (ib) ib.addEventListener('click', async () => {
+    if (!deferredInstall) return;
     deferredInstall.prompt();
     await deferredInstall.userChoice;
     deferredInstall = null;
@@ -1375,21 +1406,26 @@ function setupInstall() {
   window.addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
     deferredInstall = e;
-    // স্প্ল্যাশ চলছে থাকলে কিছু করতে হবে না — leave() ফাংশন দেখাবে
-    // স্প্ল্যাশ শেষ হলে এবং অ্যাপে ঢুকে গেলে হোম পেজে বাটন দেখাও
     const splash = document.getElementById('screen-splash');
-    if (splash && splash.classList.contains('active')) return; // স্প্ল্যাশ চলছে, পরে দেখাবে
+    // স্প্ল্যাশ চলছে এবং ইউজার এখনো leave করে নি → ইনস্টল বাটন দেখাও
+    if (splash && splash.classList.contains('active') && !isStandalone()) {
+      showInstallPrompt();
+      return;
+    }
+    // স্প্ল্যাশ শেষ হলে এবং অ্যাপে ঢুকে গেলে হোম পেজে বাটন দেখাও
     if (getProfile()) render();
   });
 
-  // অ্যাপ ইনস্টল হয়ে গেলে
+  // অ্যাপ ইন্সটল হয়ে গেলে
   window.addEventListener('appinstalled', () => {
     deferredInstall = null;
     const btn = document.getElementById('splashInstall');
     if (btn) btn.hidden = true;
   });
 
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  // Service Worker রেজিস্টার করো — HTTPS বা localhost দুটোতেই
+  const isSecureContext = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if ('serviceWorker' in navigator && isSecureContext) {
     navigator.serviceWorker.register('sw.js').catch(() => { });
   }
 }
